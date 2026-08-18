@@ -27,11 +27,12 @@ import (
 	"go/token"
 	"log"
 	"os"
-	"strings"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/0magnet/calvin"
 	"github.com/bitfield/script"
 	cc "github.com/ivanpirog/coloredcobra"
 	"github.com/spf13/cobra"
@@ -58,8 +59,8 @@ func main() {
 }
 
 var (
-	fset *token.FileSet
-	node *ast.File
+	fset      *token.FileSet
+	node      *ast.File
 	goProg    string
 	ttyUSB    string
 	baud      int
@@ -85,7 +86,7 @@ var RootCmd = &cobra.Command{
 		return strings.Split(filepath.Base(strings.ReplaceAll(strings.ReplaceAll(fmt.Sprintf("%v", os.Args), "[", ""), "]", "")), " ")[0]
 	}(),
 	Short:                 "mcu serial interfacer",
-	Long:                  "mcu serial interfacer\n",
+	Long:                  calvin.AsciiFont("mcu") + "\nmcu serial interfacer",
 	SilenceErrors:         true,
 	SilenceUsage:          true,
 	DisableSuggestions:    true,
@@ -201,50 +202,48 @@ func init() {
 	goProg = os.Getenv("GOPROG")
 	if goProg != "" {
 
-	fset = token.NewFileSet()
-	var err error
-	node, err = parser.ParseFile(fset, goProg, nil, parser.ParseComments)
-	if err != nil {
-		fmt.Println("Error parsing file:", err)
-		os.Exit(1)
-	}
-
-	var commentAbove string
-
-
-
-	for _, decl := range node.Decls {
-		genDecl, ok := decl.(*ast.GenDecl)
-		if !ok || genDecl.Tok != token.VAR {
-			continue
+		fset = token.NewFileSet()
+		var err error
+		node, err = parser.ParseFile(fset, goProg, nil, parser.ParseComments)
+		if err != nil {
+			fmt.Println("Error parsing file:", err)
+			os.Exit(1)
 		}
 
-		if genDecl.Doc != nil && len(genDecl.Doc.List) > 0 {
-			commentAbove = genDecl.Doc.List[0].Text
+		var commentAbove string
+
+		for _, decl := range node.Decls {
+			genDecl, ok := decl.(*ast.GenDecl)
+			if !ok || genDecl.Tok != token.VAR {
+				continue
+			}
+
+			if genDecl.Doc != nil && len(genDecl.Doc.List) > 0 {
+				commentAbove = genDecl.Doc.List[0].Text
 			} else {
 				commentAbove = ""
 			}
 
-		for _, spec := range genDecl.Specs {
-			valueSpec, ok := spec.(*ast.ValueSpec)
-			if !ok || len(valueSpec.Values) == 0 {
-				continue
-			}
+			for _, spec := range genDecl.Specs {
+				valueSpec, ok := spec.(*ast.ValueSpec)
+				if !ok || len(valueSpec.Values) == 0 {
+					continue
+				}
 
-			if !isStringType(valueSpec.Type) {
-				for _, name := range valueSpec.Names {
-					jsonValue, err := getVar(node, name.Name)
-					if err != nil {
-						fmt.Printf("Error marshaling %s: %v\n", name.Name, err)
-						continue
+				if !isStringType(valueSpec.Type) {
+					for _, name := range valueSpec.Names {
+						jsonValue, err := getVar(node, name.Name)
+						if err != nil {
+							fmt.Printf("Error marshaling %s: %v\n", name.Name, err)
+							continue
+						}
+						evalCmd.Flags().String(name.Name, jsonValue, strings.TrimSpace(commentAbove)+"\n\r\x1b[1;34m")
+						efCmd.Flags().String(name.Name, jsonValue, strings.TrimSpace(commentAbove)+"\n\r\x1b[1;34m")
 					}
-					evalCmd.Flags().String(name.Name, jsonValue, strings.TrimSpace(commentAbove) + "\n\r\x1b[1;34m")
-					efCmd.Flags().String(name.Name, jsonValue, strings.TrimSpace(commentAbove) + "\n\r\x1b[1;34m")
 				}
 			}
 		}
 	}
-}
 }
 
 func init() {
@@ -318,7 +317,7 @@ func init() {
 		} else {
 			u = "udisksctl not found ; mounting MCU block device not possible"
 		}
-		 cmdLong := fmt.Sprintf("\nGOPROG=%s %s \n%s", goProg, func() string {
+		cmdLong := fmt.Sprintf("\nGOPROG=%s %s \n%s", goProg, func() string {
 			ret := ""
 			if strings.HasPrefix(os.Args[0], "/tmp/go-build") {
 				ret += " go run " + filepath.Base(os.Args[0]) + ".go "
@@ -574,7 +573,7 @@ var evalCmd = &cobra.Command{
 			if vs, ok := n.(*ast.ValueSpec); ok {
 				for _, name := range vs.Names {
 					fn := name.Name
-					if fn == "help" ||  fn == "ser" ||  fn == "baud" ||  fn == "slp" ||  fn == "target" ||  fn == "dev" {
+					if fn == "help" || fn == "ser" || fn == "baud" || fn == "slp" || fn == "target" || fn == "dev" {
 						continue
 					}
 					flagValue, err := cmd.Flags().GetString(name.Name)
@@ -615,7 +614,7 @@ var efCmd = &cobra.Command{
 			if vs, ok := n.(*ast.ValueSpec); ok {
 				for _, name := range vs.Names {
 					fn := name.Name
-					if fn == "help" ||  fn == "ser" ||  fn == "baud" ||  fn == "slp" ||  fn == "target" ||  fn == "dev" {
+					if fn == "help" || fn == "ser" || fn == "baud" || fn == "slp" || fn == "target" || fn == "dev" {
 						continue
 					}
 					fv, err := cmd.Flags().GetString(fn)
@@ -634,18 +633,18 @@ var efCmd = &cobra.Command{
 		if err := printer.Fprint(&buf, fset, node); err != nil {
 			log.Fatalf("Failed to print source: %v", err)
 		}
-//		fmt.Println(buf.String())
+		//		fmt.Println(buf.String())
 
 		tempFile, err := os.CreateTemp(os.TempDir(), "*.go")
 		if err != nil {
-	        fmt.Println("Error creating temporary file:", err)
-	        return
-	    }
-	    _, err = tempFile.Write(buf.Bytes())
-	    if err != nil {
-	        fmt.Println("Error writing to temporary file:", err)
-	        return
-	    }
+			fmt.Println("Error creating temporary file:", err)
+			return
+		}
+		_, err = tempFile.Write(buf.Bytes())
+		if err != nil {
+			fmt.Println("Error writing to temporary file:", err)
+			return
+		}
 		tempFile.Close()
 		cmdToRun := "tinygo flash "
 		if target != "" {
@@ -682,91 +681,89 @@ var efCmd = &cobra.Command{
 				os.Exit(1)
 			}
 
-			} else {
-				script.Echo(cmdToRun + "\n").Stdout()
-			}
-			os.Remove(tempFile.Name())
-			if ttyUSB != "" {
-				var ttyusb string
-				time.Sleep(sleepTime)
-				var recursiveFunc func()
-				recursiveFunc = func() {
-					var err error
-					ttyusb, err = script.Exec(`bash -c 'echo ` + ttyUSB + `'`).String()
-					if err != nil {
-						fmt.Println(err.Error())
-						os.Exit(1)
+		} else {
+			script.Echo(cmdToRun + "\n").Stdout()
+		}
+		os.Remove(tempFile.Name())
+		if ttyUSB != "" {
+			var ttyusb string
+			time.Sleep(sleepTime)
+			var recursiveFunc func()
+			recursiveFunc = func() {
+				var err error
+				ttyusb, err = script.Exec(`bash -c 'echo ` + ttyUSB + `'`).String()
+				if err != nil {
+					fmt.Println(err.Error())
+					os.Exit(1)
+				}
+				hasQuestionMark := false
+				for _, char := range ttyusb {
+					if char == '?' {
+						hasQuestionMark = true
+						break
 					}
-					hasQuestionMark := false
-					for _, char := range ttyusb {
-						if char == '?' {
-							hasQuestionMark = true
-							break
-						}
-					}
-					if hasQuestionMark {
-						time.Sleep(100 * time.Millisecond)
-						recursiveFunc()
-						} else {
-							fmt.Printf("ttyusb found: %s\n", ttyusb)
-							ttyusb = strings.TrimSpace(strings.ReplaceAll(ttyusb, "\n", ""))
-						}
-					}
+				}
+				if hasQuestionMark {
+					time.Sleep(100 * time.Millisecond)
 					recursiveFunc()
-					_, err := script.Exec(`bash -c  'sudo chmod a+rw  ` + ttyusb + `'`).Stdout()
+				} else {
+					fmt.Printf("ttyusb found: %s\n", ttyusb)
+					ttyusb = strings.TrimSpace(strings.ReplaceAll(ttyusb, "\n", ""))
+				}
+			}
+			recursiveFunc()
+			_, err := script.Exec(`bash -c  'sudo chmod a+rw  ` + ttyusb + `'`).Stdout()
+			if err != nil {
+				script.Echo(err.Error() + "\n").Stdout()
+				os.Exit(1)
+			}
+			fmt.Printf("\"%s\"\n", ttyusb)
+			var port *serial.Port
+			for i := 0; i < 10; i++ {
+				port, err = serial.OpenPort(&serial.Config{Name: ttyusb, Baud: baud})
+				if err == nil {
+					break
+				}
+				log.Printf("serial.OpenPort: %v\n", err)
+				time.Sleep(time.Second)
+			}
+			if err != nil {
+				log.Printf("serial.OpenPort: %v\n", err)
+			}
+			defer port.Close()
+			var wg sync.WaitGroup
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				reader := bufio.NewReader(port)
+				for {
+					data, err := reader.ReadString('\n')
 					if err != nil {
-						script.Echo(err.Error() + "\n").Stdout()
-						os.Exit(1)
+						log.Fatalf("Error reading from serial port: %v", err)
 					}
-					fmt.Printf("\"%s\"\n", ttyusb)
-					var port *serial.Port
-					for i := 0; i < 10; i++ {
-						port, err = serial.OpenPort(&serial.Config{Name: ttyusb, Baud: baud})
-						if err == nil {
-							break
-						}
-						log.Printf("serial.OpenPort: %v\n", err)
-						time.Sleep(time.Second)
-					}
+					fmt.Print(data)
+				}
+			}()
+			go func() {
+				defer wg.Done()
+				reader := bufio.NewReader(os.Stdin)
+				for {
+					input, err := reader.ReadString('\n')
 					if err != nil {
-						log.Printf("serial.OpenPort: %v\n", err)
+						log.Fatalf("Error reading from stdin: %v", err)
 					}
-					defer port.Close()
-					var wg sync.WaitGroup
-					wg.Add(2)
-					go func() {
-						defer wg.Done()
-						reader := bufio.NewReader(port)
-						for {
-							data, err := reader.ReadString('\n')
-							if err != nil {
-								log.Fatalf("Error reading from serial port: %v", err)
-							}
-							fmt.Print(data)
-						}
-						}()
-						go func() {
-							defer wg.Done()
-							reader := bufio.NewReader(os.Stdin)
-							for {
-								input, err := reader.ReadString('\n')
-								if err != nil {
-									log.Fatalf("Error reading from stdin: %v", err)
-								}
-								input = strings.TrimSuffix(input, "\n")
-								_, err = port.Write([]byte(input))
-								if err != nil {
-									log.Fatalf("Error writing to serial port: %v", err)
-								}
-							}
-							}()
-							wg.Wait()
-						}
+					input = strings.TrimSuffix(input, "\n")
+					_, err = port.Write([]byte(input))
+					if err != nil {
+						log.Fatalf("Error writing to serial port: %v", err)
+					}
+				}
+			}()
+			wg.Wait()
+		}
 
 	},
 }
-
-
 
 const help = "Usage:\r\n" +
 	"  {{.UseLine}}{{if .HasAvailableSubCommands}}{{end}} {{if gt (len .Aliases) 0}}\r\n\r\n" +
