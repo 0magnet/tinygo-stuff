@@ -73,11 +73,12 @@ vet: ## Run go vet
 		CGO_ENABLED=0 GOOS=js GOARCH=wasm ${OPTS} go vet $(JSPKGS); \
 	fi
 
-test: ## Run tests
+test: ## Run tests. Falls back to the js/wasm ones where nothing builds here
 	@if [ -n "$(PKGS)" ]; then \
 		${OPTS} go test $(PKGS); \
 	else \
-		echo 'nothing builds for this host; no tests to run'; \
+		echo '--- nothing builds for this host; running the js/wasm tests instead'; \
+		$(MAKE) --no-print-directory test-wasm; \
 	fi
 
 # The exec wrapper Go ships for running a js/wasm binary under Node. It is what
