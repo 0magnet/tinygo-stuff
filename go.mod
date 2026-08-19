@@ -3,7 +3,7 @@ module github.com/0magnet/tinygo-stuff
 go 1.23.3
 
 require (
-	github.com/0magnet/calvin v0.0.0-20260818215653-029fc7e73f2c
+	github.com/0magnet/calvin v0.0.0-20260818215653-c62af7624521
 	github.com/bitfield/script v0.22.0
 	github.com/guptarohit/asciigraph v0.7.1
 	github.com/ivanpirog/coloredcobra v1.0.1

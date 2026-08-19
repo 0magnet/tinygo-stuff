@@ -1,5 +1,5 @@
-github.com/0magnet/calvin v0.0.0-20260818215653-029fc7e73f2c h1:CVBNubahois6bw8E8Ik2bePndPao6bVzD2zrnph5dgo=
-github.com/0magnet/calvin v0.0.0-20260818215653-029fc7e73f2c/go.mod h1:fubavjMSpnhcwu2Fct+YhkVGKz6PD0/NyH6l8GXxTb0=
+github.com/0magnet/calvin v0.0.0-20260818215653-c62af7624521 h1:nkFtBldJo7vM4mXJIKmneVrpOjTSt9LELwxcPHBtKBU=
+github.com/0magnet/calvin v0.0.0-20260818215653-c62af7624521/go.mod h1:fubavjMSpnhcwu2Fct+YhkVGKz6PD0/NyH6l8GXxTb0=
 github.com/bitfield/script v0.22.0 h1:LA7QHuEsXMPD52YLtxWrlqCCy+9FOpzNYfsRHC5Gsrc=
 github.com/bitfield/script v0.22.0/go.mod h1:ms4w+9B8f2/W0mbsgWDVTtl7K94bYuZc3AunnJC4Ebs=
 github.com/cpuguy83/go-md2man/v2 v2.0.1/go.mod h1:tgQtvFlXSQOSOSIRvRPT7W67SCa46tRHOmNcaadrF8o=
