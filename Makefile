@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help format tidy lint vet test test-wasm cover check install-linters docs
+.PHONY: help format tidy lint vet test test-wasm test-browser cover check install-linters docs
 
 # The targets that matter are `format` and `check`, and they mean the same
 # thing here as in 0pcom/skywire, which is the reference for these repos.
@@ -97,6 +97,29 @@ test-wasm: ## Run the js/wasm tests under Node
 	else \
 		echo 'no js/wasm packages'; \
 	fi
+
+# Running the js/wasm tests in a real browser instead of Node. Node has no DOM;
+# a browser has one, plus canvas and WebGL. Tests that build a fake DOM should
+# detect a real one and use it, so the same tests run both ways — anything the
+# fake gets wrong then shows up as a test that passes under Node and fails here.
+#
+# CHROME may name any Chrome-compatible binary. Brave is one. Not called BROWSER:
+# that is a conventional environment variable (xdg uses it) and ?= would take
+# whatever it happens to be set to — firefox, on this machine.
+CHROME ?= $(shell command -v google-chrome chromium chromium-browser brave 2>/dev/null | head -1)
+
+test-browser: ## Run the js/wasm tests in a headless browser (needs wasmbrowsertest)
+	@command -v wasmbrowsertest >/dev/null || { \
+		echo 'wasmbrowsertest is not installed; go install github.com/agnivade/wasmbrowsertest@latest'; exit 0; }
+	@[ -n "$(CHROME)" ] || { echo 'no Chrome-compatible browser found (set CHROME=); skipping'; exit 0; }
+	@if [ -z "$(JSPKGS)" ]; then echo 'no js/wasm packages'; exit 0; fi
+	@# chromedp looks for a binary called google-chrome and does not pass
+	@# --no-sandbox, which some environments require. A shim supplies both.
+	@d=$$(mktemp -d); printf '#!/bin/sh\nexec %s --no-sandbox "$$@"\n' '$(CHROME)' > $$d/google-chrome; \
+		chmod +x $$d/google-chrome; \
+		PATH=$$d:$$PATH CGO_ENABLED=0 GOOS=js GOARCH=wasm ${OPTS} \
+			go test -exec=wasmbrowsertest $(JSPKGS); \
+		rc=$$?; rm -rf $$d; exit $$rc
 
 cover: ## Report test coverage per package
 	@if [ -n "$(PKGS)" ]; then \
