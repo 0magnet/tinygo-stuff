@@ -12,7 +12,7 @@ import (
 // bundle of wires. What changes is where the numbers come from. Every series
 // below is derived from the pin rows worked out by Layout and the lane chosen
 // by routes — previously each wire needed two y levels and a breakpoint found
-// by trial and error, and a colour whose position in a list had to be counted
+// by trial and error, and a color whose position in a list had to be counted
 // by hand.
 //
 // The limitation is worth stating plainly, because it is why RenderText exists
@@ -90,7 +90,7 @@ func (s *Schematic) RenderAsciigraph(opts ...asciigraph.Option) (string, error) 
 //
 // The old code did this with a hand-measured byte offset (j[8:]), which worked
 // only because that plot was pure ASCII. The axis is drawn with box-drawing
-// runes and the series carry ANSI colour, so both a byte offset and a rune
+// runes and the series carry ANSI color, so both a byte offset and a rune
 // offset are wrong. Measure in visible columns instead, and cut the same
 // number of visible columns while passing escape sequences through.
 func trimAxis(plot string) string {
@@ -134,7 +134,7 @@ func visibleIndexAny(s, chars string) int {
 }
 
 // cutVisible drops the first n visible columns, keeping any escape sequences
-// so colour state is not lost.
+// so color state is not lost.
 func cutVisible(s string, n int) string {
 	var b strings.Builder
 	col := 0

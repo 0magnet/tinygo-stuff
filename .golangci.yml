@@ -64,6 +64,11 @@ linters:
       - node_modules
       - builtin$
       - examples$
+      # The firmware is compiled by TinyGo, not by the toolchain running this.
+      # It imports `machine`, which only exists there, so a host type-check of
+      # it cannot even resolve the imports — every linter would report the same
+      # one error and see none of the code.
+      - firmware/
     rules:
       # The staticcheck suggestions skywire turns off. They are style
       # preferences rather than defects, and the point of copying this file is

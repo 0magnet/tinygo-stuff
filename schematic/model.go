@@ -69,7 +69,7 @@ type Board struct {
 
 // Wire is a connection between two pins, written as "board.pin".
 //
-// Net groups wires that carry the same signal, which is what colours them. It
+// Net groups wires that carry the same signal, which is what colors them. It
 // is deliberately not derived from the pin names: "pico.GND" to "lcd.GND" and
 // "pico.GP22" to "lcd.BIT0" are both wires, but only the first is a power net.
 type Wire struct {
@@ -181,7 +181,7 @@ func (s *Schematic) Validate() []error {
 			}
 			// A wire that lands on a passive does not count as a driver at
 			// either end.
-			if !passive[bn] && !endsOnPassive(s, w, passive) {
+			if !passive[bn] && !endsOnPassive(w, passive) {
 				uses[ref]++
 			}
 		}
@@ -296,7 +296,7 @@ func (b *Board) pinNumber(side Side, i int) int {
 }
 
 // endsOnPassive reports whether either end of the wire is a passive part.
-func endsOnPassive(s *Schematic, w Wire, passive map[string]bool) bool {
+func endsOnPassive(w Wire, passive map[string]bool) bool {
 	for _, ref := range []string{w.From, w.To} {
 		if bn, _, err := splitRef(ref); err == nil && passive[bn] {
 			return true

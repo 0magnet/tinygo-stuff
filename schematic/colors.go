@@ -2,14 +2,14 @@ package schematic
 
 import "fmt"
 
-// Style is one wire's colour, in both the forms the renderers need. Keeping
+// Style is one wire's color, in both the forms the renderers need. Keeping
 // them together means the terminal drawing and the SVG cannot drift apart.
 type Style struct {
 	ANSI string // escape sequence
 	Hex  string // #rrggbb
 }
 
-// swatch is a colour known by both its 256-colour index and its hex.
+// swatch is a color known by both its 256-color index and its hex.
 type swatch struct {
 	idx int
 	hex string
@@ -34,7 +34,7 @@ type Theme struct {
 	Muted      string // titles and pin numbers
 
 	// Families give each net a band of related hues rather than one flat
-	// colour, so wires within a group stay individually traceable.
+	// color, so wires within a group stay individually traceable.
 	Families map[string][]swatch
 
 	// Spectrum is used for any net without a family of its own, and is
@@ -107,16 +107,16 @@ func (s *Schematic) theme() *Theme {
 	return &Dark
 }
 
-// Styles assigns every wire a colour, walking each net's family in turn so that
+// Styles assigns every wire a color, walking each net's family in turn so that
 // two wires of the same net are never given the same shade until the family is
 // exhausted. Assignment follows declaration order, so it is stable: adding a
-// wire to one net cannot recolour a different net.
+// wire to one net cannot recolor a different net.
 func (s *Schematic) Styles() []Style {
 	th := s.theme()
 	used := map[string]int{}
 	// Nets without a family of their own share one counter, so two such
 	// nets cannot both start at the top of the spectrum and hand out the
-	// same colour — a bus wire and the pull-up tapping it would otherwise
+	// same color — a bus wire and the pull-up tapping it would otherwise
 	// be drawn identically.
 	spectrumUsed := 0
 	out := make([]Style, len(s.Wires))
@@ -133,7 +133,7 @@ func (s *Schematic) Styles() []Style {
 	return out
 }
 
-// styleFor maps a route back to its wire's colour. Routes are reordered during
+// styleFor maps a route back to its wire's color. Routes are reordered during
 // lane assignment, so they cannot be indexed positionally.
 func styleFor(styles []Style, wires []Wire, w Wire) Style {
 	for i := range wires {

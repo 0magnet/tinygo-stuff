@@ -74,10 +74,10 @@ func (c *canvas) String(colorize bool) string {
 	return b.String()
 }
 
-// Colour lives in colors.go, where a theme carries the ANSI and hex forms
+// Color lives in colors.go, where a theme carries the ANSI and hex forms
 // together so this renderer and the SVG one cannot drift apart.
 
-// RenderText draws the schematic as text. Set colorize to emit ANSI colour.
+// RenderText draws the schematic as text. Set colorize to emit ANSI color.
 func (s *Schematic) RenderText(colorize bool) (string, error) {
 	pos, err := s.Layout()
 	if err != nil {
@@ -142,7 +142,7 @@ func drawBoard(c *canvas, b *Board) {
 	c.set(b.X, b.Y+b.H-1, '└', "")
 	c.set(b.X+b.W-1, b.Y+b.H-1, '┘', "")
 
-	// Title, centred on the bottom row.
+	// Title, centerd on the bottom row.
 	t := b.title()
 	c.text(b.X+(b.W-len(t))/2, b.Y+b.H-1, t, "\x1b[1m")
 

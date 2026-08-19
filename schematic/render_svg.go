@@ -67,7 +67,7 @@ func (s *Schematic) RenderSVG() (string, error) {
 	for _, board := range s.Boards {
 		svgBoard(&b, board, th)
 	}
-	// Each wire is drawn twice: a wide stroke in the page colour, then the
+	// Each wire is drawn twice: a wide stroke in the page color, then the
 	// wire itself. The casing punches a gap in whatever was drawn earlier, so
 	// a crossing reads as one wire ducking behind another instead of as a
 	// junction. Without it two lines simply overlap and the reader cannot
@@ -82,7 +82,7 @@ func (s *Schematic) RenderSVG() (string, error) {
 	return b.String(), nil
 }
 
-// cx and cy convert a cell coordinate to the centre of that cell in pixels,
+// cx and cy convert a cell coordinate to the center of that cell in pixels,
 // which is where a wire should sit.
 func cx(x int) int { return svgPad + x*svgCellW + svgCellW/2 }
 func cy(y int) int { return svgPad + y*svgCellH + svgCellH/2 }
