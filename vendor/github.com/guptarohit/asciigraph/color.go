@@ -1,6 +1,9 @@
 package asciigraph
 
-import "fmt"
+import (
+	"fmt"
+	"math"
+)
 
 type AnsiColor byte
 
@@ -290,6 +293,126 @@ var ColorNames = map[string]AnsiColor{
 	"whitesmoke":           WhiteSmoke,
 	"yellow":               Yellow,
 	"yellowgreen":          YellowGreen,
+}
+
+// HeatmapSpectrum is a built-in cool-to-warm palette (blue → cyan → green →
+// yellow → red) intended for use with SeriesColorGradient to render
+// heatmap-style graphs where low values are cool and high values are warm.
+var HeatmapSpectrum = []AnsiColor{
+	21, 27, 33, 39, 45, 51, // blue → cyan
+	50, 49, 48, 47, 46, // cyan → green
+	82, 118, 154, 190, 226, // green → yellow
+	220, 214, 208, 202, 196, // yellow → red
+}
+
+// gradientColor maps value v within [min, max] onto stops (lowest value → first
+// stop, highest → last), blending between the two surrounding stops in RGB space
+// so that even two stops produce a smooth gradient. A value landing exactly on a
+// stop returns that stop unchanged. It returns the first stop when there are no
+// usable bounds (min >= max) and Default when stops is empty.
+func gradientColor(stops []AnsiColor, v, min, max float64) AnsiColor {
+	if len(stops) == 0 {
+		return Default
+	}
+	if len(stops) == 1 || max <= min {
+		return stops[0]
+	}
+	t := (v - min) / (max - min)
+	if math.IsNaN(t) {
+		return stops[0]
+	}
+	if t < 0 {
+		t = 0
+	} else if t > 1 {
+		t = 1
+	}
+	pos := t * float64(len(stops)-1)
+	i := int(pos)
+	if i >= len(stops)-1 {
+		return stops[len(stops)-1]
+	}
+	frac := pos - float64(i)
+	if frac == 0 {
+		return stops[i]
+	}
+	r0, g0, b0 := ansiToRGB(stops[i])
+	r1, g1, b1 := ansiToRGB(stops[i+1])
+	lerp := func(a, b uint8) uint8 {
+		return uint8(float64(a) + frac*(float64(b)-float64(a)) + 0.5)
+	}
+	return rgbToAnsi256(lerp(r0, r1), lerp(g0, g1), lerp(b0, b1))
+}
+
+// ansi16 holds the RGB values of the 16 standard ANSI system colors (indices
+// 0-15), used to interpolate gradients that include named/system colors.
+var ansi16 = [16][3]uint8{
+	{0, 0, 0}, {128, 0, 0}, {0, 128, 0}, {128, 128, 0},
+	{0, 0, 128}, {128, 0, 128}, {0, 128, 128}, {192, 192, 192},
+	{128, 128, 128}, {255, 0, 0}, {0, 255, 0}, {255, 255, 0},
+	{0, 0, 255}, {255, 0, 255}, {0, 255, 255}, {255, 255, 255},
+}
+
+// ansiToRGB returns the RGB components of an 8-bit ANSI color index.
+func ansiToRGB(c AnsiColor) (r, g, b uint8) {
+	if c == Black {
+		return 0, 0, 0
+	}
+	switch {
+	case c < 16:
+		v := ansi16[c]
+		return v[0], v[1], v[2]
+	case c < 232:
+		// 6x6x6 color cube: levels are 0, 95, 135, 175, 215, 255.
+		i := int(c) - 16
+		level := func(n int) uint8 {
+			if n == 0 {
+				return 0
+			}
+			return uint8(55 + 40*n)
+		}
+		return level(i / 36), level((i / 6) % 6), level(i % 6)
+	default:
+		// grayscale ramp 232-255
+		gray := uint8(8 + 10*(int(c)-232))
+		return gray, gray, gray
+	}
+}
+
+// rgbToAnsi256 maps an RGB triple to an 8-bit ANSI color index: exact grays use
+// the nearest step on the grayscale ramp (the darkest map to cube black), all
+// other colors the 6x6x6 cube.
+func rgbToAnsi256(r, g, b uint8) AnsiColor {
+	if r == g && g == b {
+		if r < 8 {
+			return 16
+		}
+		step := (int(r) - 8 + 5) / 10 // round (r-8)/10 to the nearest ramp step
+		if step > 23 {
+			// Brighter than the ramp's max (gray 238); pick whichever of that
+			// step or cube white (255) is nearer.
+			if r > 246 {
+				return 231
+			}
+			return 255
+		}
+		return AnsiColor(232 + step)
+	}
+	cube := func(v uint8) int {
+		if v < 48 {
+			return 0
+		}
+		if v < 115 {
+			return 1
+		}
+		return (int(v) - 35) / 40
+	}
+	idx := AnsiColor(16 + 36*cube(r) + 6*cube(g) + cube(b))
+	if idx == Black {
+		// 188 is reused as the Black sentinel, so a near-white blend that lands
+		// here would render as black; emit the matching gray ramp step instead.
+		return 253
+	}
+	return idx
 }
 
 func (c AnsiColor) String() string {

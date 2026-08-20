@@ -3,17 +3,22 @@ package script
 import (
 	"bufio"
 	"container/ring"
+	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"io"
+	"io/fs"
 	"math"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,13 +32,15 @@ import (
 // Pipe represents a pipe object with an associated [ReadAutoCloser].
 type Pipe struct {
 	// Reader is the underlying reader.
-	Reader         ReadAutoCloser
-	stdout, stderr io.Writer
-	httpClient     *http.Client
+	Reader     ReadAutoCloser
+	stdout     io.Writer
+	httpClient *http.Client
 
-	// because pipe stages are concurrent, protect 'err'
-	mu  *sync.Mutex
-	err error
+	mu     *sync.Mutex
+	err    error
+	stderr io.Writer
+	env    []string
+	ctx    context.Context
 }
 
 // Args creates a pipe containing the program's command-line arguments from
@@ -53,14 +60,22 @@ func Echo(s string) *Pipe {
 	return NewPipe().WithReader(strings.NewReader(s))
 }
 
-// Exec creates a pipe that runs cmdLine as an external command and produces
-// its combined output (interleaving standard output and standard error). See
-// [Pipe.Exec] for error handling details.
+// Exec creates a pipe that runs cmdLine as an external command.
 //
-// Use [Pipe.Exec] to send the contents of an existing pipe to the command's
-// standard input.
+// Prefer using [Shell] or [ExecCommand] instead unless you specifically need
+// [shell.Fields]-style parsing behaviour.
+//
+// See [Pipe.Exec] for details.
 func Exec(cmdLine string) *Pipe {
 	return NewPipe().Exec(cmdLine)
+}
+
+// ExecCommand creates a pipe that runs name as an external command with the supplied
+// args.
+//
+// See [Pipe.ExecCommand] for details.
+func ExecCommand(name string, args ...string) *Pipe {
+	return NewPipe().ExecCommand(name, args...)
 }
 
 // File creates a pipe that reads from the file path.
@@ -73,8 +88,9 @@ func File(path string) *Pipe {
 }
 
 // FindFiles creates a pipe listing all the files in the directory dir and its
-// subdirectories recursively, one per line, like Unix find(1). If dir doesn't
-// exist or can't be read, the pipe's error status will be set.
+// subdirectories recursively, one per line, like Unix find(1).
+// Errors are ignored unless no files are found (in which case the pipe's error
+// status will be set to the last error encountered).
 //
 // Each line of the output consists of a slash-separated path, starting with
 // the initial directory. For example, if the directory looks like this:
@@ -89,33 +105,36 @@ func File(path string) *Pipe {
 //	test/2.txt
 func FindFiles(dir string) *Pipe {
 	var paths []string
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	var innerErr error
+	fs.WalkDir(os.DirFS(dir), ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			innerErr = err
+			return fs.SkipDir
 		}
-		if !info.IsDir() {
-			paths = append(paths, path)
+		if !d.IsDir() {
+			paths = append(paths, filepath.Join(dir, path))
 		}
 		return nil
 	})
-	if err != nil {
-		return NewPipe().WithError(err)
+	if innerErr != nil && len(paths) == 0 {
+		return NewPipe().WithError(innerErr)
 	}
 	return Slice(paths)
 }
 
-// Get creates a pipe that makes an HTTP GET request to URL, and produces the
+// Get creates a pipe that makes an HTTP GET request to url, and produces the
 // response. See [Pipe.Do] for how the HTTP response status is interpreted.
-func Get(URL string) *Pipe {
-	return NewPipe().Get(URL)
+func Get(url string) *Pipe {
+	return NewPipe().Get(url)
 }
 
-// IfExists tests whether path exists, and creates a pipe whose error status
-// reflects the result. If the file doesn't exist, the pipe's error status will
-// be set, and if the file does exist, the pipe will have no error status. This
-// can be used to do some operation only if a given file exists:
+// IfExists tests whether path exists.
 //
-//	IfExists("/foo/bar").Exec("/usr/bin/something")
+// If the file doesn't exist, the pipe's error status will be set, and if the file does
+// exist, the pipe will have no error status. This can be used to do some operation only
+// if a given file exists, by chaining [Pipe.ExecCommand] afterwards:
+//
+//	IfExists("/foo/bar").ExecCommand("/usr/bin/something")
 func IfExists(path string) *Pipe {
 	_, err := os.Stat(path)
 	if err != nil {
@@ -166,24 +185,42 @@ func NewPipe() *Pipe {
 		mu:         new(sync.Mutex),
 		stdout:     os.Stdout,
 		httpClient: http.DefaultClient,
+		env:        nil,
+		ctx:        context.Background(),
 	}
 }
 
-// Post creates a pipe that makes an HTTP POST request to URL, with an empty
+// Post creates a pipe that makes an HTTP POST request to url, with an empty
 // body, and produces the response. See [Pipe.Do] for how the HTTP response
 // status is interpreted.
-func Post(URL string) *Pipe {
-	return NewPipe().Post(URL)
+func Post(url string) *Pipe {
+	return NewPipe().Post(url)
 }
 
-// Slice creates a pipe containing each element of s, one per line.
+// Shell creates a pipe that runs cmdLine as a command via the system shell.
+//
+// See [Pipe.Shell] for details.
+func Shell(cmdLine string) *Pipe {
+	return NewPipe().Shell(cmdLine)
+}
+
+// Slice creates a pipe containing each element of s, one per line. If s is
+// empty or nil, then the pipe is empty.
 func Slice(s []string) *Pipe {
+	if len(s) == 0 {
+		return NewPipe()
+	}
 	return Echo(strings.Join(s, "\n") + "\n")
 }
 
 // Stdin creates a pipe that reads from [os.Stdin].
 func Stdin() *Pipe {
 	return NewPipe().WithReader(os.Stdin)
+}
+
+// WithContext creates a pipe with the context ctx.
+func WithContext(ctx context.Context) *Pipe {
+	return NewPipe().WithContext(ctx)
 }
 
 // AppendFile appends the contents of the pipe to the file path, creating it if
@@ -250,7 +287,7 @@ func (p *Pipe) Column(col int) *Pipe {
 //
 // Or from the output of a command:
 //
-//	script.Exec("ls /var/app/config/").Concat().Stdout()
+//	script.ExecCommand("ls /var/app/config/").Concat().Stdout()
 //
 // Each input file will be closed once it has been fully read. If any of the
 // files can't be opened or read, Concat will simply skip these and carry on,
@@ -273,6 +310,18 @@ func (p *Pipe) CountLines() (lines int, err error) {
 		lines++
 	}).Wait()
 	return lines, p.Error()
+}
+
+// DecodeBase64 produces the string represented by the base64 encoded input.
+func (p *Pipe) DecodeBase64() *Pipe {
+	return p.Filter(func(r io.Reader, w io.Writer) error {
+		decoder := base64.NewDecoder(base64.StdEncoding, r)
+		_, err := io.Copy(w, decoder)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 // Dirname reads paths from the pipe, one per line, and produces only the
@@ -302,6 +351,12 @@ func (p *Pipe) Dirname() *Pipe {
 // set by [Pipe.WithHTTPClient], or [http.DefaultClient] otherwise. The
 // response body is streamed concurrently to the pipe's output. If the response
 // status is anything other than HTTP 200-299, the pipe's error status is set.
+//
+// # Context
+//
+// The request does not inherit the pipe's context (if any was set by
+// [Pipe.WithContext]). If you want the request to be cancellable, you will need to set
+// your own context on it.
 func (p *Pipe) Do(req *http.Request) *Pipe {
 	return p.Filter(func(r io.Reader, w io.Writer) error {
 		resp, err := p.httpClient.Do(req)
@@ -347,7 +402,29 @@ func (p *Pipe) Echo(s string) *Pipe {
 	return p.WithReader(strings.NewReader(s))
 }
 
+// EncodeBase64 produces the base64 encoding of the input.
+func (p *Pipe) EncodeBase64() *Pipe {
+	return p.Filter(func(r io.Reader, w io.Writer) error {
+		encoder := base64.NewEncoder(base64.StdEncoding, w)
+		defer encoder.Close()
+		_, err := io.Copy(encoder, r)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+func (p *Pipe) environment() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.env
+}
+
 // Error returns any error present on the pipe, or nil otherwise.
+// Error is not a sink and does not wait until the pipe reaches
+// completion. To wait for completion before returning the error,
+// see [Pipe.Wait].
 func (p *Pipe) Error() error {
 	if p.mu == nil { // uninitialised pipe
 		return nil
@@ -357,38 +434,87 @@ func (p *Pipe) Error() error {
 	return p.err
 }
 
-// Exec runs cmdLine as an external command, sending it the contents of the
-// pipe as input, and produces the command's standard output (see below for
-// error output). The effect of this is to filter the contents of the pipe
-// through the external command.
+// Exec runs cmdLine as an external command.
+//
+// The command receives the contents of the pipe as its standard input, and the
+// command's combined output (interleaving standard output and standard error) is sent
+// to the pipe.
+//
+// # Argument parsing
+//
+// cmdLine is split into a program name and arguments using [shell.Fields]-style
+// parsing. To pass the program name and arguments as separate parameters, use
+// [Pipe.ExecCommand] instead.
+//
+// Because [shell.Fields] handles splitting, quoting, and variable expansion in a way
+// that's slightly inconsistent with shells on various platforms, Exec will at some
+// point be deprecated in favour of [Pipe.ExecCommand] (if you are constructing the
+// command line from individual arguments) or [Pipe.Shell] (if the command line is a
+// string).
+//
+// See [Pipe.ExecCommand] for details of error handling, context, and environment
+// variables.
+func (p *Pipe) Exec(cmdLine string) *Pipe {
+	args, err := shell.Fields(cmdLine, nil)
+	if err != nil {
+		return p.WithError(err)
+	}
+	return p.ExecCommand(args[0], args[1:]...)
+}
+
+// ExecCommand runs name as an external command with the supplied args.
+//
+// The command receives the contents of the pipe as its standard input, and the
+// command's combined output (interleaving standard output and standard error) is sent
+// to the pipe.
+//
+// # Argument parsing
+//
+// The arguments are not parsed or expanded in any way; name and args are passed
+// directly to the operating system, exactly as supplied, with no shell involved. This
+// is the same API as Go's standard [os/exec.Command]. See also [Pipe.Shell] which
+// passes the command line through the system shell for variable expansion, etc.
+//
+// # Environment
+//
+// The command inherits the current process's environment, or the pipe's environment if
+// one was previously set using [Pipe.WithEnv].
+//
+// # Context
+//
+// The command inherits the pipe's context (if any was set by
+// [Pipe.WithContext]), and will be cancelled if the context is
+// cancelled or times out.
 //
 // # Error handling
 //
-// If the command had a non-zero exit status, the pipe's error status will also
-// be set to the string “exit status X”, where X is the integer exit status.
-// Even in the event of a non-zero exit status, the command's output will still
-// be available in the pipe. This is often helpful for debugging. However,
-// because [Pipe.String] is a no-op if the pipe's error status is set, if you
-// want output you will need to reset the error status before calling
-// [Pipe.String].
+// If the command had a non-zero exit status, the pipe's error status
+// will also be set to the string "exit status X", where X is the
+// integer exit status. Even in the event of a non-zero exit status,
+// the command's output will still be available in the pipe. This is
+// often helpful for debugging. However, because [Pipe.String] is a
+// no-op if the pipe's error status is set, if you want output you
+// will need to reset the error status before calling [Pipe.String].
 //
-// If the command writes to its standard error stream, this will also go to the
-// pipe, along with its standard output. However, the standard error text can
-// instead be redirected to a supplied writer, using [Pipe.WithStderr].
-func (p *Pipe) Exec(cmdLine string) *Pipe {
+// If the command writes to its standard error stream, this will also
+// go to the pipe, along with its standard output. However, the
+// standard error text can instead be redirected to a supplied writer,
+// using [Pipe.WithStderr].
+func (p *Pipe) ExecCommand(name string, args ...string) *Pipe {
 	return p.Filter(func(r io.Reader, w io.Writer) error {
-		args, err := shell.Fields(cmdLine, nil)
-		if err != nil {
-			return err
-		}
-		cmd := exec.Command(args[0], args[1:]...)
+		cmd := exec.CommandContext(p.ctx, name, args...)
 		cmd.Stdin = r
 		cmd.Stdout = w
 		cmd.Stderr = w
-		if p.stderr != nil {
-			cmd.Stderr = p.stderr
+		pipeStderr := p.stdErr()
+		if pipeStderr != nil {
+			cmd.Stderr = pipeStderr
 		}
-		err = cmd.Start()
+		pipeEnv := p.environment()
+		if pipeEnv != nil {
+			cmd.Env = pipeEnv
+		}
+		err := cmd.Start()
 		if err != nil {
 			fmt.Fprintln(cmd.Stderr, err)
 			return err
@@ -397,14 +523,26 @@ func (p *Pipe) Exec(cmdLine string) *Pipe {
 	})
 }
 
-// ExecForEach renders cmdLine as a Go template for each line of input, running
-// the resulting command, and produces the combined output of all these
-// commands in sequence. See [Pipe.Exec] for error handling details.
+// ExecForEach runs cmdLine for each line of input.
+//
+// cmdLine is rendered as a Go template for each line of input, running the resulting
+// command, and produces the combined output of all these commands in sequence. See
+// [Pipe.ExecCommand] for details on error handling and environment variables.
 //
 // This is mostly useful for substituting data into commands using Go template
 // syntax. For example:
 //
 //	ListFiles("*").ExecForEach("touch {{.}}").Wait()
+//
+// # Environment
+//
+// The command inherits the current process's environment, optionally modified
+// by [Pipe.WithEnv].
+//
+// # Context
+//
+// The command inherits the pipe's context (if any was set by [Pipe.WithContext]), and
+// will be cancelled if the context is cancelled or times out.
 func (p *Pipe) ExecForEach(cmdLine string) *Pipe {
 	tpl, err := template.New("").Parse(cmdLine)
 	if err != nil {
@@ -413,6 +551,9 @@ func (p *Pipe) ExecForEach(cmdLine string) *Pipe {
 	return p.Filter(func(r io.Reader, w io.Writer) error {
 		scanner := newScanner(r)
 		for scanner.Scan() {
+			if p.ctx.Err() != nil {
+				return p.ctx.Err()
+			}
 			cmdLine := new(strings.Builder)
 			err := tpl.Execute(cmdLine, scanner.Text())
 			if err != nil {
@@ -422,11 +563,16 @@ func (p *Pipe) ExecForEach(cmdLine string) *Pipe {
 			if err != nil {
 				return err
 			}
-			cmd := exec.Command(args[0], args[1:]...)
+			cmd := exec.CommandContext(p.ctx, args[0], args[1:]...)
 			cmd.Stdout = w
 			cmd.Stderr = w
-			if p.stderr != nil {
-				cmd.Stderr = p.stderr
+			pipeStderr := p.stdErr()
+			if pipeStderr != nil {
+				cmd.Stderr = pipeStderr
+			}
+			pipeEnv := p.environment()
+			if pipeEnv != nil {
+				cmd.Env = pipeEnv
 			}
 			err = cmd.Start()
 			if err != nil {
@@ -445,9 +591,9 @@ func (p *Pipe) ExecForEach(cmdLine string) *Pipe {
 
 var exitStatusPattern = regexp.MustCompile(`exit status (\d+)$`)
 
-// ExitStatus returns the integer exit status of a previous command (for
-// example run by [Pipe.Exec]). This will be zero unless the pipe's error
-// status is set and the error matches the pattern “exit status %d”.
+// ExitStatus returns the integer exit status of a previous command (for example run by
+// [Pipe.ExecCommand]). This will be zero unless the pipe's error status is set and the
+// error matches the pattern “exit status %d”.
 func (p *Pipe) ExitStatus() int {
 	if p.Error() == nil {
 		return 0
@@ -469,9 +615,10 @@ func (p *Pipe) ExitStatus() int {
 // [io.Writer] to write its output to, and returns an error, which will be set
 // on the pipe.
 //
-// filter runs concurrently, so its goroutine will not exit until the pipe has
-// been fully read. Use [Pipe.Wait] to wait for all concurrent filters to
-// complete.
+// filter runs concurrently, so its goroutine will not exit until the pipe has been
+// fully read. Use [Pipe.Wait] to wait for all concurrent filters to complete. These
+// goroutines are not automatically cancelled by the pipe's context, if one was set by
+// [Pipe.WithContext].
 func (p *Pipe) Filter(filter func(io.Reader, io.Writer) error) *Pipe {
 	if p.Error() != nil {
 		return p
@@ -514,7 +661,8 @@ func (p *Pipe) FilterScan(filter func(string, io.Writer)) *Pipe {
 
 // First produces only the first n lines of the pipe's contents, or all the
 // lines if there are less than n. If n is zero or negative, there is no output
-// at all.
+// at all. When n lines have been produced, First stops reading its input and
+// sends EOF to its output.
 func (p *Pipe) First(n int) *Pipe {
 	if p.Error() != nil {
 		return p
@@ -522,13 +670,15 @@ func (p *Pipe) First(n int) *Pipe {
 	if n <= 0 {
 		return NewPipe()
 	}
-	i := 0
-	return p.FilterScan(func(line string, w io.Writer) {
-		if i >= n {
-			return
+	return p.Filter(func(r io.Reader, w io.Writer) error {
+		scanner := newScanner(r)
+		for i := 0; i < n && scanner.Scan(); i++ {
+			_, err := fmt.Fprintln(w, scanner.Text())
+			if err != nil {
+				return err
+			}
 		}
-		fmt.Fprintln(w, line)
-		i++
+		return scanner.Err()
 	})
 }
 
@@ -584,15 +734,54 @@ func (p *Pipe) Freq() *Pipe {
 	})
 }
 
-// Get makes an HTTP GET request to URL, sending the contents of the pipe as
+// Get makes an HTTP GET request to url, sending the contents of the pipe as
 // the request body, and produces the server's response. See [Pipe.Do] for how
 // the HTTP response status is interpreted.
-func (p *Pipe) Get(URL string) *Pipe {
-	req, err := http.NewRequest(http.MethodGet, URL, p.Reader)
+//
+// # Context
+//
+// The request inherits the pipe's context (if any was set by [Pipe.WithContext]), and
+// will be cancelled if the context is cancelled or times out.
+func (p *Pipe) Get(url string) *Pipe {
+	req, err := http.NewRequestWithContext(p.ctx, http.MethodGet, url, p.Reader)
 	if err != nil {
 		return p.WithError(err)
 	}
 	return p.Do(req)
+}
+
+// Hash returns the hex-encoded hash of the entire contents of the
+// pipe based on the provided hasher, or an error.
+// To perform hashing on files, see [Pipe.HashSums].
+func (p *Pipe) Hash(hasher hash.Hash) (string, error) {
+	if p.Error() != nil {
+		return "", p.Error()
+	}
+	_, err := io.Copy(hasher, p)
+	if err != nil {
+		p.SetError(err)
+		return "", err
+	}
+	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+// HashSums reads paths from the pipe, one per line, and produces the
+// hex-encoded hash of each corresponding file based on the provided hasher,
+// one per line. Any files that cannot be opened or read will be ignored.
+// To perform hashing on the contents of the pipe, see [Pipe.Hash].
+func (p *Pipe) HashSums(hasher hash.Hash) *Pipe {
+	return p.FilterScan(func(line string, w io.Writer) {
+		f, err := os.Open(line)
+		if err != nil {
+			return // skip unopenable files
+		}
+		defer f.Close()
+		_, err = io.Copy(hasher, f)
+		if err != nil {
+			return // skip unreadable files
+		}
+		fmt.Fprintln(w, hex.EncodeToString(hasher.Sum(nil)))
+	})
 }
 
 // Join joins all the lines in the pipe's contents into a single
@@ -614,38 +803,50 @@ func (p *Pipe) Join() *Pipe {
 	})
 }
 
-// JQ executes query on the pipe's contents (presumed to be JSON), producing
-// the result. An invalid query will set the appropriate error on the pipe.
+// JQ executes query on the pipe's contents (presumed to be valid JSON or
+// [JSONLines] data), applying the query to each newline-delimited input value
+// and producing results until the first error is encountered. An invalid query
+// or value will set the appropriate error on the pipe.
 //
 // The exact dialect of JQ supported is that provided by
 // [github.com/itchyny/gojq], whose documentation explains the differences
 // between it and standard JQ.
+//
+// [JSONLines]: https://jsonlines.org/
 func (p *Pipe) JQ(query string) *Pipe {
+	parsedQuery, err := gojq.Parse(query)
+	if err != nil {
+		return p.WithError(err)
+	}
+	code, err := gojq.Compile(parsedQuery)
+	if err != nil {
+		return p.WithError(err)
+	}
 	return p.Filter(func(r io.Reader, w io.Writer) error {
-		q, err := gojq.Parse(query)
-		if err != nil {
-			return err
-		}
-		var input interface{}
-		err = json.NewDecoder(r).Decode(&input)
-		if err != nil {
-			return err
-		}
-		iter := q.Run(input)
-		for {
-			v, ok := iter.Next()
-			if !ok {
-				return nil
-			}
-			if err, ok := v.(error); ok {
-				return err
-			}
-			result, err := gojq.Marshal(v)
+		dec := json.NewDecoder(r)
+		for dec.More() {
+			var input any
+			err := dec.Decode(&input)
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(w, string(result))
+			iter := code.Run(input)
+			for {
+				v, ok := iter.Next()
+				if !ok {
+					break
+				}
+				if err, ok := v.(error); ok {
+					return err
+				}
+				result, err := gojq.Marshal(v)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintln(w, string(result))
+			}
 		}
+		return nil
 	})
 }
 
@@ -693,11 +894,16 @@ func (p *Pipe) MatchRegexp(re *regexp.Regexp) *Pipe {
 	})
 }
 
-// Post makes an HTTP POST request to URL, using the contents of the pipe as
+// Post makes an HTTP POST request to url, using the contents of the pipe as
 // the request body, and produces the server's response. See [Pipe.Do] for how
 // the HTTP response status is interpreted.
-func (p *Pipe) Post(URL string) *Pipe {
-	req, err := http.NewRequest(http.MethodPost, URL, p.Reader)
+//
+// # Context
+//
+// The request inherits the pipe's context (if any was set by [Pipe.WithContext]), and
+// will be cancelled if the context is cancelled or times out.
+func (p *Pipe) Post(url string) *Pipe {
+	req, err := http.NewRequestWithContext(p.ctx, http.MethodPost, url, p.Reader)
 	if err != nil {
 		return p.WithError(err)
 	}
@@ -731,8 +937,8 @@ func (p *Pipe) Replace(search, replace string) *Pipe {
 }
 
 // ReplaceRegexp replaces all matches of the compiled regexp re with the string
-// re. $x variables in the replace string are interpreted as by
-// [regexp.Expand]; for example, $1 represents the text of the first submatch.
+// replace. $x variables in the replace string are interpreted as by
+// [regexp#Regexp.Expand]; for example, $1 represents the text of the first submatch.
 func (p *Pipe) ReplaceRegexp(re *regexp.Regexp, replace string) *Pipe {
 	return p.FilterLine(func(line string) string {
 		return re.ReplaceAllString(line, replace)
@@ -761,36 +967,48 @@ func (p *Pipe) SetError(err error) {
 
 // SHA256Sum returns the hex-encoded SHA-256 hash of the entire contents of the
 // pipe, or an error.
+//
+// Deprecated: SHA256Sum has been deprecated by [Pipe.Hash]. To get the SHA-256
+// hash for the contents of the pipe, call `Hash(sha256.new())`
 func (p *Pipe) SHA256Sum() (string, error) {
-	if p.Error() != nil {
-		return "", p.Error()
-	}
-	hasher := sha256.New()
-	_, err := io.Copy(hasher, p)
-	if err != nil {
-		p.SetError(err)
-		return "", err
-	}
-	return hex.EncodeToString(hasher.Sum(nil)), p.Error()
+	return p.Hash(sha256.New())
 }
 
 // SHA256Sums reads paths from the pipe, one per line, and produces the
 // hex-encoded SHA-256 hash of each corresponding file, one per line. Any files
 // that cannot be opened or read will be ignored.
+//
+// Deprecated: SHA256Sums has been deprecated by [Pipe.HashSums]. To get the SHA-256
+// hash for each file path in the pipe, call `HashSums(sha256.new())`
 func (p *Pipe) SHA256Sums() *Pipe {
-	return p.FilterScan(func(line string, w io.Writer) {
-		f, err := os.Open(line)
-		if err != nil {
-			return // skip unopenable files
-		}
-		defer f.Close()
-		h := sha256.New()
-		_, err = io.Copy(h, f)
-		if err != nil {
-			return // skip unreadable files
-		}
-		fmt.Fprintln(w, hex.EncodeToString(h.Sum(nil)))
-	})
+	return p.HashSums(sha256.New())
+}
+
+// Shell runs cmdLine as a command via the operating system's standard shell.
+//
+// cmdLine will be passed to the shell process for expansion and execution ("sh -c" on
+// Unix-like systems, "cmd /C" on Windows). The command will receive the contents of the
+// pipe as input, and the command's combined output will be sent to the pipe.
+//
+// # Argument parsing
+//
+// cmdLine is passed to the shell completely unmodified as a single argument; Shell
+// performs no parsing of cmdLine at all, so the shell alone is responsible for
+// interpreting quoting, variable expansion, and other syntax, exactly as it would on an
+// interactive command line. Shell is preferred over [Pipe.Exec] because it eliminates
+// inconsistencies in quoting and expansion.
+//
+// Note that variable syntax differs by platform: Unix shells expand variables written
+// as $VAR, while cmd.exe on Windows expands variables written as %VAR%.
+//
+// See [Pipe.ExecCommand] for details on error handling, context, and environment
+// variables set via [Pipe.WithEnv].
+func (p *Pipe) Shell(cmdLine string) *Pipe {
+	shell, flag := "sh", "-c"
+	if runtime.GOOS == "windows" {
+		shell, flag = "cmd", "/C"
+	}
+	return p.ExecCommand(shell, flag, cmdLine)
 }
 
 // Slice returns the pipe's contents as a slice of strings, one element per
@@ -805,6 +1023,20 @@ func (p *Pipe) Slice() ([]string, error) {
 		result = append(result, line)
 	}).Wait()
 	return result, p.Error()
+}
+
+// stdErr returns the pipe's configured standard error writer.
+//
+// This where standard error output will go for commands run via [Pipe.Shell],
+// [Pipe.ExecCommand], or [Pipe.ExecForEach]. The default is nil, which means that error
+// output will go directly to the pipe.
+func (p *Pipe) stdErr() io.Writer {
+	if p.mu == nil { // uninitialised pipe
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.stderr
 }
 
 // Stdout copies the pipe's contents to its configured standard output (using
@@ -845,14 +1077,33 @@ func (p *Pipe) Tee(writers ...io.Writer) *Pipe {
 	return p.WithReader(io.TeeReader(p.Reader, teeWriter))
 }
 
-// Wait reads the pipe to completion and discards the result. This is mostly
-// useful for waiting until concurrent filters have completed (see
-// [Pipe.Filter]).
-func (p *Pipe) Wait() {
-	_, err := io.ReadAll(p)
+// Wait reads the pipe to completion and returns any error present on
+// the pipe, or nil otherwise. This is mostly useful for waiting until
+// concurrent filters have completed (see [Pipe.Filter]).
+func (p *Pipe) Wait() error {
+	_, err := io.Copy(io.Discard, p)
 	if err != nil {
 		p.SetError(err)
 	}
+	return p.Error()
+}
+
+// WithContext sets the context inherited by subsequent [Pipe.ExecCommand],
+// [Pipe.ExecForEach], [Pipe.Get], [Pipe.Post], and [Pipe.Shell] commands.
+func (p *Pipe) WithContext(ctx context.Context) *Pipe {
+	p.ctx = ctx
+	return p
+}
+
+// WithEnv sets the environment inherited by subsequent [Pipe.ExecCommand] and
+// [Pipe.ExecForEach], and [Pipe.Shell] commands to the string slice env, using the same
+// format as [os/exec.Cmd.Env]. An empty slice unsets all existing environment
+// variables.
+func (p *Pipe) WithEnv(env []string) *Pipe {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.env = env
+	return p
 }
 
 // WithError sets the error err on the pipe.
@@ -880,10 +1131,13 @@ func (p *Pipe) WithReader(r io.Reader) *Pipe {
 	return p
 }
 
-// WithStderr redirects the standard error output for commands run via
-// [Pipe.Exec] or [Pipe.ExecForEach] to the writer w, instead of going to the
-// pipe as it normally would.
+// WithStderr sets the standard error output writer for commands.
+//
+// The standard error output of commands run by [Pipe.ExecCommand], [Pipe.ExecForEach],
+// and [Pipe.Shell] commands will go to w, instead of the pipe as they would otherwise.
 func (p *Pipe) WithStderr(w io.Writer) *Pipe {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.stderr = w
 	return p
 }
@@ -905,7 +1159,7 @@ func (p *Pipe) writeOrAppendFile(path string, mode int) (int64, error) {
 	if p.Error() != nil {
 		return 0, p.Error()
 	}
-	out, err := os.OpenFile(path, mode, 0666)
+	out, err := os.OpenFile(path, mode, 0o666)
 	if err != nil {
 		p.SetError(err)
 		return 0, err
@@ -942,7 +1196,7 @@ func (ra ReadAutoCloser) Close() error {
 	if ra.r == nil {
 		return nil
 	}
-	return ra.r.(io.Closer).Close()
+	return ra.r.Close()
 }
 
 // Read reads up to len(b) bytes from ra's reader into b. It returns the number

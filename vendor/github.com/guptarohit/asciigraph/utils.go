@@ -69,7 +69,8 @@ func interpolateArray(data []float64, fitCount int) []float64 {
 	return interpolatedData
 }
 
-// clear terminal screen
+// Clear clears the entire terminal screen. On Windows it runs "cls"; on other
+// platforms it writes an ANSI clear sequence.
 var Clear func()
 
 func init() {
@@ -88,4 +89,27 @@ func init() {
 			fmt.Print("\033[2J\033[H")
 		}
 	}
+}
+
+// ClearLines erases the last n lines by moving the cursor up and clearing to
+// the end of the screen. Unlike Clear, content above those lines is preserved.
+// It is a no-op for n <= 0.
+func ClearLines(n int) {
+	if n > 0 {
+		fmt.Printf("\033[%dA\033[J", n)
+	}
+}
+
+func calculateHeight(interval float64) int {
+	if interval >= 1 {
+		return int(interval)
+	}
+
+	scaleFactor := math.Pow(10, math.Floor(math.Log10(interval)))
+	scaledDelta := interval / scaleFactor
+
+	if scaledDelta < 2 {
+		return int(math.Ceil(scaledDelta))
+	}
+	return int(math.Floor(scaledDelta))
 }

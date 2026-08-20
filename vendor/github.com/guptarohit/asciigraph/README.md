@@ -73,6 +73,88 @@ Running this example would render the following graph:
  0.00 ┼╯     ╰
 ```
 
+### Custom Y-axis value formatting
+
+Use `YAxisValueFormatter(...)` to control how values printed on the Y-axis are rendered.
+This is useful for human-readable units like bytes, durations, or domain-specific labels.
+
+```go
+package main
+
+import (
+	"fmt"
+
+	"github.com/guptarohit/asciigraph"
+)
+
+func main() {
+	data := []float64{
+		30 * 1024 * 1024 * 1024,
+		70 * 1024 * 1024 * 1024,
+		2 * 1024 * 1024 * 1024,
+	}
+
+	graph := asciigraph.Plot(data,
+		asciigraph.Height(5),
+		asciigraph.Width(45),
+		asciigraph.YAxisValueFormatter(func(v float64) string {
+			return fmt.Sprintf("%.2f GiB", v/1024/1024/1024)
+		}),
+	)
+
+	fmt.Println(graph)
+}
+```
+
+Running this example would render the following graph:
+```bash
+ 70.00 GiB ┤                 ╭──────╮
+ 56.40 GiB ┤         ╭───────╯      ╰────╮
+ 42.80 GiB ┤  ╭──────╯                   ╰───╮
+ 29.20 GiB ┼──╯                              ╰────╮
+ 15.60 GiB ┤                                      ╰───╮
+  2.00 GiB ┤                                          ╰─
+```
+
+### X-axis Support
+
+Use `XAxisRange(min, max)` to add a labeled X-axis below the graph.
+`XAxisTickCount(n)` controls how many tick marks appear (default 5, minimum 2).
+
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/guptarohit/asciigraph"
+)
+
+func main() {
+	data := []float64{3, 4, 9, 6, 2, 4, 5, 8, 5, 10, 2, 7, 2, 5, 6}
+	graph := asciigraph.Plot(data,
+		asciigraph.XAxisRange(0, 14),
+		asciigraph.XAxisTickCount(3),
+	)
+
+	fmt.Println(graph)
+}
+```
+
+Running this example would render the following graph:
+```bash
+ 10.00 ┤        ╭╮
+  9.00 ┤ ╭╮     ││
+  8.00 ┤ ││   ╭╮││
+  7.00 ┤ ││   ││││╭╮
+  6.00 ┤ │╰╮  ││││││ ╭
+  5.00 ┤ │ │ ╭╯╰╯│││╭╯
+  4.00 ┤╭╯ │╭╯   ││││
+  3.00 ┼╯  ││    ││││
+  2.00 ┤   ╰╯    ╰╯╰╯
+       └┬──────┬──────┬
+        0      7     14
+```
+
 ### Colored graphs
 
 ```go
@@ -109,6 +191,81 @@ func main() {
 Running this example would render the following graph:
 
 ![colored_graph_image][]
+
+### Gradient (heatmap) coloring
+
+Instead of a solid color per series, `SeriesColorGradient` colors each point by
+its value along a palette — warm tones for high values, cool tones for low ones.
+The built-in `HeatmapSpectrum` provides a ready-made cool-to-warm palette, or you
+can pass your own color stops (lowest value first).
+
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/guptarohit/asciigraph"
+)
+
+func main() {
+	data := []float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 8, 7, 6, 5, 4, 3, 2, 1}
+	graph := asciigraph.Plot(data,
+		asciigraph.Height(10),
+		asciigraph.SeriesColorGradient(asciigraph.HeatmapSpectrum...),
+	)
+	fmt.Println(graph)
+}
+```
+
+Running this example would render the following graph:
+
+<img src=".github/assets/gradient.png" alt="gradient graph" width="350" />
+
+### Threshold coloring
+
+`ColorAbove` and `ColorBelow` highlight points that breach a threshold —
+useful for flagging alerts, like a CPU usage spike or a disk space warning —
+without recoloring the whole series. `ColorAbove` colors points strictly above
+its threshold (value > threshold) and `ColorBelow` strictly below (value <
+threshold). Points in between keep their normal color — the series color, or
+the gradient color when `SeriesColorGradient` is set. These take precedence over
+`SeriesColorGradient` and `SeriesColors`; when both thresholds match the same
+point, `ColorAbove` wins.
+
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/guptarohit/asciigraph"
+)
+
+func main() {
+	data := []float64{42, 48, 55, 81, 85, 91, 87, 34, 12, 17, 10, 18, 55, 50}
+	graph := asciigraph.Plot(data,
+		asciigraph.Height(10),
+		asciigraph.Width(25),
+		asciigraph.LowerBound(0),
+		asciigraph.UpperBound(100),
+		asciigraph.Caption("CPU usage % (red: critical, green: idle)"),
+		asciigraph.ColorAbove(asciigraph.Red, 80),
+		asciigraph.ColorBelow(asciigraph.Green, 25),
+	)
+	fmt.Println(graph)
+}
+```
+
+Running this example would render the following graph — the spike above 80% in
+red and the dip below 25% in green:
+
+<img src=".github/assets/threshold.png" alt="threshold colored graph" width="450" />
+
+On the CLI, the same thresholds are available via the `-ca` and `-cb` flags,
+each taking a `color,value` pair:
+
+```bash
+seq 1 100 | asciigraph -h 10 -ca red,80 -cb green,25
+```
 
 ### Legends for colored graphs
 
@@ -177,12 +334,18 @@ Options:
     	data points buffer when realtime graph enabled, default equal to `width`
   -c caption
     	caption for the graph
+  -ca above
+    	color points above a threshold: "color,value" (e.g. "red,4")
+  -cb below
+    	color points below a threshold: "color,value" (e.g. "green,2")
   -cc caption color
     	caption color of the plot
   -d delimiter
     	data delimiter for splitting data points in the input stream (default ",")
   -f fps
     	set fps to control how frequently graph to be rendered when realtime graph enabled (default 24)
+  -g gradient
+    	gradient palette coloring points by value: "spectrum" for the built-in heatmap, or comma-separated color stops low to high (e.g. "blue,cyan,green")
   -h height
     	height in text rows, 0 for auto-scaling
   -lb lower bound
@@ -205,18 +368,24 @@ Options:
     	upper bound set the maximum value for the vertical axis (ignored if series contains larger values) (default -Inf)
   -w width
     	width in columns, 0 for auto-scaling
+  -xmax value
+    	x-axis maximum value (default NaN)
+  -xmin value
+    	x-axis minimum value (default NaN)
+  -xt tick count
+    	x-axis tick count (default 5, minimum 2)
 asciigraph expects data points from stdin. Invalid values are logged to stderr.
 ```
 
 
 Feed it data points via stdin:
 ```bash
-seq 1 72 | asciigraph -h 10 -c "plot data from stdin"
+seq 1 72 | asciigraph -h 10 -c "plot data from stdin" -xmin 0 -xmax 40 -xt 5
 ```
 
 or use Docker image:
 ```bash
-seq 1 72 | docker run -i --rm ghcr.io/guptarohit/asciigraph -h 10 -c "plot data from stdin"
+seq 1 72 | docker run -i --rm ghcr.io/guptarohit/asciigraph -h 10 -c "plot data from stdin" -xmin 0 -xmax 40 -xt 5
 ```
 
 Output:
@@ -233,6 +402,8 @@ Output:
  15.20 ┤         ╭──────╯
   8.10 ┤  ╭──────╯
   1.00 ┼──╯
+       └┬─────────────────┬─────────────────┬────────────────┬─────────────────┬
+        0                10                20               30                40
                                   plot data from stdin
 ```
 

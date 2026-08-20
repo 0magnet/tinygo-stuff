@@ -5,6 +5,20 @@ import (
 	"strings"
 )
 
+// Parse a query string, and returns the query struct.
+//
+// If parsing failed, it returns an error of type [*ParseError], which has
+// the byte offset and the invalid token. The byte offset is the scanned bytes
+// when the error occurred. The token is empty if the error occurred after
+// scanning the entire query string.
+func Parse(src string) (*Query, error) {
+	l := newLexer(src)
+	if yyParse(l) > 0 {
+		return nil, l.err
+	}
+	return l.result, nil
+}
+
 // Query represents the abstract syntax tree of a jq query.
 type Query struct {
 	Meta     *ConstObject
@@ -12,15 +26,14 @@ type Query struct {
 	FuncDefs []*FuncDef
 	Term     *Term
 	Left     *Query
-	Op       Operator
 	Right    *Query
-	Func     string
+	Patterns []*Pattern
+	Op       Operator
 }
 
 // Run the query.
 //
 // It is safe to call this method in goroutines, to reuse a parsed [*Query].
-// But for arguments, do not give values sharing same data between goroutines.
 func (e *Query) Run(v any) Iter {
 	return e.RunWithContext(context.Background(), v)
 }
@@ -49,46 +62,29 @@ func (e *Query) writeTo(s *strings.Builder) {
 	for _, im := range e.Imports {
 		im.writeTo(s)
 	}
-	for i, fd := range e.FuncDefs {
-		if i > 0 {
-			s.WriteByte(' ')
-		}
+	for _, fd := range e.FuncDefs {
 		fd.writeTo(s)
-	}
-	if len(e.FuncDefs) > 0 {
 		s.WriteByte(' ')
 	}
-	if e.Func != "" {
-		s.WriteString(e.Func)
-	} else if e.Term != nil {
+	if e.Term != nil {
 		e.Term.writeTo(s)
 	} else if e.Right != nil {
 		e.Left.writeTo(s)
-		if e.Op == OpComma {
-			s.WriteString(", ")
-		} else {
-			s.WriteByte(' ')
-			s.WriteString(e.Op.String())
+		if e.Op != OpComma {
 			s.WriteByte(' ')
 		}
+		for i, p := range e.Patterns {
+			if i == 0 {
+				s.WriteString("as ")
+			} else {
+				s.WriteString("?// ")
+			}
+			p.writeTo(s)
+			s.WriteByte(' ')
+		}
+		s.WriteString(e.Op.String())
+		s.WriteByte(' ')
 		e.Right.writeTo(s)
-	}
-}
-
-func (e *Query) minify() {
-	for _, e := range e.FuncDefs {
-		e.Minify()
-	}
-	if e.Term != nil {
-		if name := e.Term.toFunc(); name != "" {
-			e.Term = nil
-			e.Func = name
-		} else {
-			e.Term.minify()
-		}
-	} else if e.Right != nil {
-		e.Left.minify()
-		e.Right.minify()
 	}
 }
 
@@ -166,11 +162,6 @@ func (e *FuncDef) writeTo(s *strings.Builder) {
 	s.WriteString(": ")
 	e.Body.writeTo(s)
 	s.WriteByte(';')
-}
-
-// Minify ...
-func (e *FuncDef) Minify() {
-	e.Body.minify()
 }
 
 // Term ...
@@ -255,65 +246,6 @@ func (e *Term) writeTo(s *strings.Builder) {
 	}
 }
 
-func (e *Term) minify() {
-	switch e.Type {
-	case TermTypeIndex:
-		e.Index.minify()
-	case TermTypeFunc:
-		e.Func.minify()
-	case TermTypeObject:
-		e.Object.minify()
-	case TermTypeArray:
-		e.Array.minify()
-	case TermTypeUnary:
-		e.Unary.minify()
-	case TermTypeFormat:
-		if e.Str != nil {
-			e.Str.minify()
-		}
-	case TermTypeString:
-		e.Str.minify()
-	case TermTypeIf:
-		e.If.minify()
-	case TermTypeTry:
-		e.Try.minify()
-	case TermTypeReduce:
-		e.Reduce.minify()
-	case TermTypeForeach:
-		e.Foreach.minify()
-	case TermTypeLabel:
-		e.Label.minify()
-	case TermTypeQuery:
-		e.Query.minify()
-	}
-	for _, e := range e.SuffixList {
-		e.minify()
-	}
-}
-
-func (e *Term) toFunc() string {
-	if len(e.SuffixList) != 0 {
-		return ""
-	}
-	// ref: compiler#compileQuery
-	switch e.Type {
-	case TermTypeIdentity:
-		return "."
-	case TermTypeRecurse:
-		return ".."
-	case TermTypeNull:
-		return "null"
-	case TermTypeTrue:
-		return "true"
-	case TermTypeFalse:
-		return "false"
-	case TermTypeFunc:
-		return e.Func.toFunc()
-	default:
-		return ""
-	}
-}
-
 func (e *Term) toIndexKey() any {
 	switch e.Type {
 	case TermTypeNumber:
@@ -373,10 +305,6 @@ func (e *Unary) String() string {
 func (e *Unary) writeTo(s *strings.Builder) {
 	s.WriteString(e.Op.String())
 	e.Term.writeTo(s)
-}
-
-func (e *Unary) minify() {
-	e.Term.minify()
 }
 
 func (e *Unary) toNumber() any {
@@ -502,18 +430,6 @@ func (e *Index) writeSuffixTo(s *strings.Builder) {
 	}
 }
 
-func (e *Index) minify() {
-	if e.Str != nil {
-		e.Str.minify()
-	}
-	if e.Start != nil {
-		e.Start.minify()
-	}
-	if e.End != nil {
-		e.End.minify()
-	}
-}
-
 func (e *Index) toIndexKey() any {
 	if e.Name != "" {
 		return e.Name
@@ -574,19 +490,6 @@ func (e *Func) writeTo(s *strings.Builder) {
 	}
 }
 
-func (e *Func) minify() {
-	for _, x := range e.Args {
-		x.minify()
-	}
-}
-
-func (e *Func) toFunc() string {
-	if len(e.Args) != 0 {
-		return ""
-	}
-	return e.Name
-}
-
 // String ...
 type String struct {
 	Str     string
@@ -617,12 +520,6 @@ func (e *String) writeTo(s *strings.Builder) {
 	s.WriteByte('"')
 }
 
-func (e *String) minify() {
-	for _, e := range e.Queries {
-		e.minify()
-	}
-}
-
 // Object ...
 type Object struct {
 	KeyVals []*ObjectKeyVal
@@ -649,18 +546,12 @@ func (e *Object) writeTo(s *strings.Builder) {
 	s.WriteString(" }")
 }
 
-func (e *Object) minify() {
-	for _, e := range e.KeyVals {
-		e.minify()
-	}
-}
-
 // ObjectKeyVal ...
 type ObjectKeyVal struct {
 	Key       string
 	KeyString *String
 	KeyQuery  *Query
-	Val       *ObjectVal
+	Val       *Query
 }
 
 func (e *ObjectKeyVal) String() string {
@@ -685,43 +576,6 @@ func (e *ObjectKeyVal) writeTo(s *strings.Builder) {
 	}
 }
 
-func (e *ObjectKeyVal) minify() {
-	if e.KeyString != nil {
-		e.KeyString.minify()
-	} else if e.KeyQuery != nil {
-		e.KeyQuery.minify()
-	}
-	if e.Val != nil {
-		e.Val.minify()
-	}
-}
-
-// ObjectVal ...
-type ObjectVal struct {
-	Queries []*Query
-}
-
-func (e *ObjectVal) String() string {
-	var s strings.Builder
-	e.writeTo(&s)
-	return s.String()
-}
-
-func (e *ObjectVal) writeTo(s *strings.Builder) {
-	for i, e := range e.Queries {
-		if i > 0 {
-			s.WriteString(" | ")
-		}
-		e.writeTo(s)
-	}
-}
-
-func (e *ObjectVal) minify() {
-	for _, e := range e.Queries {
-		e.minify()
-	}
-}
-
 // Array ...
 type Array struct {
 	Query *Query
@@ -741,18 +595,11 @@ func (e *Array) writeTo(s *strings.Builder) {
 	s.WriteByte(']')
 }
 
-func (e *Array) minify() {
-	if e.Query != nil {
-		e.Query.minify()
-	}
-}
-
 // Suffix ...
 type Suffix struct {
 	Index    *Index
 	Iter     bool
 	Optional bool
-	Bind     *Bind
 }
 
 func (e *Suffix) String() string {
@@ -772,16 +619,6 @@ func (e *Suffix) writeTo(s *strings.Builder) {
 		s.WriteString("[]")
 	} else if e.Optional {
 		s.WriteByte('?')
-	} else if e.Bind != nil {
-		e.Bind.writeTo(s)
-	}
-}
-
-func (e *Suffix) minify() {
-	if e.Index != nil {
-		e.Index.minify()
-	} else if e.Bind != nil {
-		e.Bind.minify()
 	}
 }
 
@@ -800,38 +637,6 @@ func (e *Suffix) toIndices(xs []any) []any {
 		return nil
 	}
 	return e.Index.toIndices(xs)
-}
-
-// Bind ...
-type Bind struct {
-	Patterns []*Pattern
-	Body     *Query
-}
-
-func (e *Bind) String() string {
-	var s strings.Builder
-	e.writeTo(&s)
-	return s.String()
-}
-
-func (e *Bind) writeTo(s *strings.Builder) {
-	for i, p := range e.Patterns {
-		if i == 0 {
-			s.WriteString(" as ")
-			p.writeTo(s)
-			s.WriteByte(' ')
-		} else {
-			s.WriteString("?// ")
-			p.writeTo(s)
-			s.WriteByte(' ')
-		}
-	}
-	s.WriteString("| ")
-	e.Body.writeTo(s)
-}
-
-func (e *Bind) minify() {
-	e.Body.minify()
 }
 
 // If ...
@@ -864,17 +669,6 @@ func (e *If) writeTo(s *strings.Builder) {
 	s.WriteString(" end")
 }
 
-func (e *If) minify() {
-	e.Cond.minify()
-	e.Then.minify()
-	for _, x := range e.Elif {
-		x.minify()
-	}
-	if e.Else != nil {
-		e.Else.minify()
-	}
-}
-
 // IfElif ...
 type IfElif struct {
 	Cond *Query
@@ -892,11 +686,6 @@ func (e *IfElif) writeTo(s *strings.Builder) {
 	e.Cond.writeTo(s)
 	s.WriteString(" then ")
 	e.Then.writeTo(s)
-}
-
-func (e *IfElif) minify() {
-	e.Cond.minify()
-	e.Then.minify()
 }
 
 // Try ...
@@ -920,16 +709,9 @@ func (e *Try) writeTo(s *strings.Builder) {
 	}
 }
 
-func (e *Try) minify() {
-	e.Body.minify()
-	if e.Catch != nil {
-		e.Catch.minify()
-	}
-}
-
 // Reduce ...
 type Reduce struct {
-	Term    *Term
+	Query   *Query
 	Pattern *Pattern
 	Start   *Query
 	Update  *Query
@@ -943,7 +725,7 @@ func (e *Reduce) String() string {
 
 func (e *Reduce) writeTo(s *strings.Builder) {
 	s.WriteString("reduce ")
-	e.Term.writeTo(s)
+	e.Query.writeTo(s)
 	s.WriteString(" as ")
 	e.Pattern.writeTo(s)
 	s.WriteString(" (")
@@ -953,15 +735,9 @@ func (e *Reduce) writeTo(s *strings.Builder) {
 	s.WriteByte(')')
 }
 
-func (e *Reduce) minify() {
-	e.Term.minify()
-	e.Start.minify()
-	e.Update.minify()
-}
-
 // Foreach ...
 type Foreach struct {
-	Term    *Term
+	Query   *Query
 	Pattern *Pattern
 	Start   *Query
 	Update  *Query
@@ -976,7 +752,7 @@ func (e *Foreach) String() string {
 
 func (e *Foreach) writeTo(s *strings.Builder) {
 	s.WriteString("foreach ")
-	e.Term.writeTo(s)
+	e.Query.writeTo(s)
 	s.WriteString(" as ")
 	e.Pattern.writeTo(s)
 	s.WriteString(" (")
@@ -988,15 +764,6 @@ func (e *Foreach) writeTo(s *strings.Builder) {
 		e.Extract.writeTo(s)
 	}
 	s.WriteByte(')')
-}
-
-func (e *Foreach) minify() {
-	e.Term.minify()
-	e.Start.minify()
-	e.Update.minify()
-	if e.Extract != nil {
-		e.Extract.minify()
-	}
 }
 
 // Label ...
@@ -1016,10 +783,6 @@ func (e *Label) writeTo(s *strings.Builder) {
 	s.WriteString(e.Ident)
 	s.WriteString(" | ")
 	e.Body.writeTo(s)
-}
-
-func (e *Label) minify() {
-	e.Body.minify()
 }
 
 // ConstTerm ...
@@ -1073,6 +836,14 @@ func (e *ConstTerm) toValue() any {
 	} else {
 		return e.Str
 	}
+}
+
+func (e *ConstTerm) toString() (string, bool) {
+	if e.Object != nil || e.Array != nil ||
+		e.Number != "" || e.Null || e.True || e.False {
+		return "", false
+	}
+	return e.Str, true
 }
 
 // ConstObject ...
@@ -1134,7 +905,7 @@ func (e *ConstObjectKeyVal) writeTo(s *strings.Builder) {
 	if e.Key != "" {
 		s.WriteString(e.Key)
 	} else {
-		s.WriteString(e.KeyString)
+		jsonEncodeString(s, e.KeyString)
 	}
 	s.WriteString(": ")
 	e.Val.writeTo(s)

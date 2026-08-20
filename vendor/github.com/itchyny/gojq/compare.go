@@ -1,6 +1,8 @@
 package gojq
 
 import (
+	"cmp"
+	"encoding/json"
 	"math"
 	"math/big"
 )
@@ -9,15 +11,11 @@ import (
 // The result will be 0 if l == r, -1 if l < r, and +1 if l > r.
 // This comparison is used by built-in operators and functions.
 func Compare(l, r any) int {
-	return compare(l, r)
-}
-
-func compare(l, r any) int {
 	return binopTypeSwitch(l, r,
-		compareInt,
-		func(l, r float64) any {
+		cmp.Compare,
+		func(l, r float64) int {
 			switch {
-			case l < r || math.IsNaN(l):
+			case lt(l, r):
 				return -1
 			case l == r:
 				return 0
@@ -25,58 +23,36 @@ func compare(l, r any) int {
 				return 1
 			}
 		},
-		func(l, r *big.Int) any {
-			return l.Cmp(r)
-		},
-		func(l, r string) any {
-			switch {
-			case l < r:
-				return -1
-			case l == r:
-				return 0
-			default:
-				return 1
-			}
-		},
-		func(l, r []any) any {
-			n := len(l)
-			if len(r) < n {
-				n = len(r)
-			}
-			for i := 0; i < n; i++ {
-				if cmp := compare(l[i], r[i]); cmp != 0 {
+		(*big.Int).Cmp,
+		cmp.Compare,
+		func(l, r []any) int {
+			for i := range min(len(l), len(r)) {
+				if cmp := Compare(l[i], r[i]); cmp != 0 {
 					return cmp
 				}
 			}
-			return compareInt(len(l), len(r))
+			return cmp.Compare(len(l), len(r))
 		},
-		func(l, r map[string]any) any {
+		func(l, r map[string]any) int {
 			lk, rk := funcKeys(l), funcKeys(r)
-			if cmp := compare(lk, rk); cmp != 0 {
+			if cmp := Compare(lk, rk); cmp != 0 {
 				return cmp
 			}
 			for _, k := range lk.([]any) {
-				if cmp := compare(l[k.(string)], r[k.(string)]); cmp != 0 {
+				if cmp := Compare(l[k.(string)], r[k.(string)]); cmp != 0 {
 					return cmp
 				}
 			}
 			return 0
 		},
-		func(l, r any) any {
-			return compareInt(typeIndex(l), typeIndex(r))
+		func(l, r any) int {
+			return cmp.Compare(typeIndex(l), typeIndex(r))
 		},
-	).(int)
+	)
 }
 
-func compareInt(l, r int) any {
-	switch {
-	case l < r:
-		return -1
-	case l == r:
-		return 0
-	default:
-		return 1
-	}
+func lt(l, r float64) bool {
+	return l < r || math.IsNaN(l)
 }
 
 func typeIndex(v any) int {
@@ -88,7 +64,7 @@ func typeIndex(v any) int {
 			return 1
 		}
 		return 2
-	case int, float64, *big.Int:
+	case int, float64, *big.Int, json.Number:
 		return 3
 	case string:
 		return 4
