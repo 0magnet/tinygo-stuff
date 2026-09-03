@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style type="text/css">
+body { background:#000; margin:0; padding:8px; }
+pre { color:#d0d0d0; background:#000; line-height:1; }
+pre {
+  font-family:"DejaVu Sans Mono",monospace;
+  font-size:10pt;
+}
+
+.af_line {
+  color: gray;
+  text-decoration: none;
+}
+
+</style>
+<title>ansi.txt</title>
+</head>
+<body>
+<pre>
+
+              <span style="color:#cd0000;">┌───────────────────────────────────────────┐</span>
+              <span style="color:#cd0000;">│</span>               <span style="color:#00cdcd;">┌───────────────────────────┼──────────────┐</span>
+              <span style="color:#cd0000;">│</span>   <span style="color:#cd0000;">┌───────────┼───────────────────────────│</span>              <span style="color:#00cdcd;">│</span>
+              <span style="color:#cd0000;">│┌──┼───────────┼───────────────────────────│</span>              <span style="color:#00cdcd;">│</span>
+┌───────────┐ <span style="color:#cd0000;">││</span>  <span style="color:#cd0000;">│</span>           <span style="color:#00cdcd;">│</span> ┌───────────────────────┐ <span style="color:#cd0000;">│</span>              <span style="color:#00cdcd;">│</span> ┌────────────┐
+│           │ <span style="color:#cd0000;">││</span>  <span style="color:#cd0000;">│</span>           <span style="color:#00cdcd;">│</span> │1                    40│ <span style="color:#cd0000;">│</span>              <span style="color:#00cdcd;">│</span> │            │
+│     GND[ ]├<span style="color:#7f7f7f;">──────┐</span><span style="color:#cdcd00;">────────────</span>┤( )GP0/U0Rx     VBUS[ ]├<span style="color:#cd0000;">──┐</span><span style="color:#7f7f7f;">┌────────────┼─</span>┤[ ]GND      │
+│     VCC[ ]├<span style="color:#cd0000;">─┘│</span><span style="color:#cdcd00;">│┌─┼────────────</span>┤( )GP1/U0Tx     VSYS[ ]├<span style="color:#cd0000;">─│└───────────────</span>┤[ ]VCC      │
+│     SDA( )├<span style="color:#cdcd00;">───┘│</span><span style="color:#cd0000;">│</span><span style="color:#7f7f7f;">└────────────</span>┤[ ]GND           GND[ ]├ <span style="color:#cd0000;">│</span> <span style="color:#7f7f7f;">│</span><span style="color:#cd00cd;">┌─────────────</span>┤( )CONT     │
+│     SCL( )├<span style="color:#cdcd00;">────┘</span><span style="color:#cd0000;">│</span>    <span style="color:#cd00cd;">┌──────┼─</span>┤( )GP2         3V3EN( )├ <span style="color:#cd0000;">│</span> <span style="color:#7f7f7f;">│</span><span style="color:#cd00cd;">│┌────────────</span>┤( )RS       │
+│     SQW( )├  <span style="color:#cd0000;">│</span><span style="color:#cd00cd;">┌─┼────┼──────┼─</span>┤( )GP3           3V3[ ]├<span style="color:#cd0000;">─┘</span><span style="color:#7f7f7f;">┌┼┼┼──────────┼─</span>┤( )RW       │
+│           │  <span style="color:#cd0000;">│</span><span style="color:#cd00cd;">│</span> <span style="color:#cd0000;">│</span>    <span style="color:#cd00cd;">│┌─────┼─</span>┤( )GP4          AREF[ ]├ <span style="color:#cd0000;">│</span><span style="color:#7f7f7f;">││</span><span style="color:#cd00cd;">││</span>   <span style="color:#cd00cd;">┌────────</span>┤( )EN       │
+└──<span style="font-weight:bold;color:#7f7f7f;">DS1307</span>───┘  <span style="color:#cd0000;">│</span><span style="color:#cd00cd;">│</span><span style="color:#00cdcd;">┌┼────┼┼─────┼─</span>┤( )GP5       A2/GP28( )├<span style="color:#cd00cd;">────┘│</span><span style="color:#00cdcd;">┌──┼────────</span>┤( )BIT0     │
+               <span style="color:#cd0000;">│</span><span style="color:#cd00cd;">│</span><span style="color:#00cdcd;">│</span><span style="color:#cd0000;">│</span>    <span style="color:#cd00cd;">││</span><span style="color:#7f7f7f;">┌────┼─</span>┤[ ]GND           GND[ ]├<span style="color:#7f7f7f;">────┐</span><span style="color:#cd00cd;">│</span><span style="color:#00cdcd;">│┌─┼──────┼─</span>┤( )BIT1     │
+┌────────────┐ <span style="color:#cd0000;">│</span><span style="color:#cd00cd;">│</span><span style="color:#00cdcd;">│</span><span style="color:#cd0000;">│</span><span style="color:#00cdcd;">┌───┼┼┼────┼─</span>┤( )GP6       A1/GP27( )├<span style="color:#cd00cd;">─────────┘</span><span style="color:#00cdcd;">──────┼─</span>┤( )BIT2     │
+│            │ <span style="color:#cd0000;">│</span><span style="color:#cd00cd;">│</span><span style="color:#00cdcd;">│</span><span style="color:#cd0000;">│</span><span style="color:#00cdcd;">│┌──┼┼┼────┼─</span>┤( )GP7       A0/GP26( )├<span style="color:#cd00cd;">─────┘</span><span style="color:#00cdcd;">│││┌──────┼─</span>┤( )BIT3     │
+│      GND[ ]├<span style="color:#7f7f7f;">────────────┐</span><span style="color:#00cdcd;">───┼─</span>┤( )GP8           RUN( )├ <span style="color:#cd0000;">│</span><span style="color:#7f7f7f;">│││</span> <span style="color:#00cdcd;">││││┌─────┼─</span>┤( )BIT4     │
+│      VCC[ ]├<span style="color:#cd0000;">────┘</span><span style="color:#00cdcd;">│││┌┼┼┼┼───┼─</span>┤( )GP9          GP22( )├<span style="color:#00cdcd;">──────┘┼┼┼┼─────┼─</span>┤( )BIT5     │
+│     CONT( )├<span style="color:#cd00cd;">─────────┘│</span><span style="color:#7f7f7f;">│└─────</span>┤[ ]GND           GND[ ]├<span style="color:#7f7f7f;">───┘│</span><span style="color:#00cdcd;">│┌┼┼┼┼─────┼─</span>┤( )BIT6     │
+│       RS( )├<span style="color:#cd00cd;">──────────┘</span><span style="color:#00cdcd;">┼────┼─</span>┤( )GP10         GP21( )├<span style="color:#00cdcd;">───────┘│││</span>     <span style="color:#00cdcd;">└─</span>┤( )BIT7     │
+│       RW( )├<span style="color:#7f7f7f;">───────────┘</span><span style="color:#00cdcd;">────┼─</span>┤( )GP11         GP20( )├<span style="color:#00cdcd;">────────┘</span><span style="color:#cd0000;">┼┼───────</span>┤[ ]LED+     │
+│       EN( )├<span style="color:#cd00cd;">──┘</span><span style="color:#00cdcd;">│││││││┌─────┼─</span>┤( )GP12         GP19( )├<span style="color:#00cdcd;">─────────┘</span><span style="color:#7f7f7f;">┼───────</span>┤[ ]LED-     │
+│     BIT0( )├<span style="color:#00cdcd;">───┘│││││││</span>     <span style="color:#00cdcd;">│</span> ┤( )GP13         GP18( )├<span style="color:#00cdcd;">──────────┘</span>       │            │
+│     BIT1( )├<span style="color:#00cdcd;">──</span><span style="color:#7f7f7f;">┌─────────────┼─</span>┤[ ]GND           GND[ ]├<span style="color:#7f7f7f;">──┘</span>  <span style="color:#00cdcd;">││</span>           └──<span style="font-weight:bold;color:#7f7f7f;">HD44780</span>───┘
+│     BIT2( )├<span style="color:#00cdcd;">──┼─┼─┘││││</span>     <span style="color:#00cdcd;">│</span> ┤( )GP14         GP17( )├<span style="color:#00cdcd;">─────┘│</span>
+│     BIT3( )├<span style="color:#00cdcd;">──┼─┼──┘│││</span>     <span style="color:#00cdcd;">└─</span>┤( )GP15         GP16( )├<span style="color:#00cdcd;">──────┘</span>
+│     BIT4( )├<span style="color:#00cdcd;">──┼─┼───┘││</span>       │20                   21│
+│     BIT5( )├<span style="color:#00cdcd;">──┼─┘</span>    <span style="color:#00cdcd;">││</span>       └────────<span style="font-weight:bold;color:#7f7f7f;">Pi-Pico</span>────────┘
+│     BIT6( )├<span style="color:#00cdcd;">──┼──────┘│</span>
+│     BIT7( )├<span style="color:#00cdcd;">──┼───────┘</span>
+│     LED+[ ]├<span style="color:#cd0000;">─┘</span><span style="color:#7f7f7f;">│</span>
+│     LED-[ ]├<span style="color:#7f7f7f;">──┘</span>
+│            │
+└─<span style="font-weight:bold;color:#7f7f7f;">HD44780 #2</span>─┘
+
+</pre>
+</body>
+</html>
+<!--HTML generated by ansifilter 2.22, http://andre-simon.de/-->
