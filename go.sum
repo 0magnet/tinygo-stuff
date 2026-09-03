@@ -1,5 +1,5 @@
-github.com/0magnet/calvin v0.0.0-20260827183707-92b02e6b3d3d h1:Yk41LagfLVXmwdvCxH1Tpmjsib3ghoVQE9lVTSY+uSs=
-github.com/0magnet/calvin v0.0.0-20260827183707-92b02e6b3d3d/go.mod h1:SrNaZcBbV8Ro28LlUQZak8rAtayeyQ0Snm2VJ3ryAXY=
+github.com/0magnet/calvin v0.0.0-20260903022122-1518a55e53f3 h1:uTd6dB25KZUkxTkekrD7pLp3UFc3NgUv6UQiwQqdrQk=
+github.com/0magnet/calvin v0.0.0-20260903022122-1518a55e53f3/go.mod h1:SrNaZcBbV8Ro28LlUQZak8rAtayeyQ0Snm2VJ3ryAXY=
 github.com/0magnet/coloredcobra v1.0.2 h1:HmKUcBcpBpbdPv03XyIfH8iMOIG2TDQIkx3GLWGbtf4=
 github.com/0magnet/coloredcobra v1.0.2/go.mod h1:LuB8WMJUz/OsbiFXZnUEtHnpt112tBTZiUTiuAotXoY=
 github.com/bitfield/script v0.25.0 h1:Ml/7GM82vzYWKrK2oPIl5/lkZEGhEMCQZm235usJuwc=
