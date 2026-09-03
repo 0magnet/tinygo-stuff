@@ -1,0 +1,3 @@
+# The compiled binary. It was tracked, so a 15 MB ELF executable sat in
+# the tree and in every clone.
+/tinygo-stuff
