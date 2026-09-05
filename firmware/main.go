@@ -12,7 +12,7 @@ import (
 )
 
 //timeStamp for rtc reference set on compilation RFC3339
-//rtcFuture explicitly sets RTC time to the timestamp ; follow up by flashing with a complation where rtcFuture is not true to avoid setting the original timestamp every time
+//rtcFuture explicitly sets RTC time to the timestamp ; follow up by flashing with a completion where rtcFuture is not true to avoid setting the original timestamp every time
 // By the time the program compiles, is flashed, and boots, a small amount of time has passed since the timestamp. offSet specifies the amount of time to add to the timestamp, in seconds, to account for this difference
 /*
 Workflow / flashing procedure ; note that the block device will be different on different systems

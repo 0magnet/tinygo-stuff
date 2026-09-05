@@ -142,7 +142,7 @@ func drawBoard(c *canvas, b *Board) {
 	c.set(b.X, b.Y+b.H-1, '└', "")
 	c.set(b.X+b.W-1, b.Y+b.H-1, '┘', "")
 
-	// Title, centerd on the bottom row.
+	// Title, centered on the bottom row.
 	t := b.title()
 	c.text(b.X+(b.W-len(t))/2, b.Y+b.H-1, t, "\x1b[1m")
 
